@@ -1,0 +1,759 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Landslide Early Warning System</title>
+<meta name="description" content="AI-based landslide early warning and prediction dashboard">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0D1117; --panel:#161B22; --panel-2:#1C2430; --border:#2B3440;
+    --text:#E6EDF3; --muted:#8B96A5;
+    --safe:#3FB950; --watch:#D4A72C; --high:#E58A2E; --critical:#E5534B;
+    --accent-grad: linear-gradient(135deg, #E58A2E, #E5534B);
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#F5F3EE; --panel:#FFFFFF; --panel-2:#F0EEE8; --border:#DEDAD1;
+      --text:#1A1D22; --muted:#666B75;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D1117; --panel:#161B22; --panel-2:#1C2430; --border:#2B3440;
+    --text:#E6EDF3; --muted:#8B96A5;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ max-width:100%; overflow-x:hidden; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(229,138,46,0.06), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(212,167,44,0.05), transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter', sans-serif, system-ui;
+    line-height:1.5;
+  }
+  h1,h2,h3{ font-family:'Space Grotesk', sans-serif; margin:0; }
+  ::selection{ background:rgba(212,167,44,.35); color:#fff; }
+
+  header{
+    padding:20px 28px; border-bottom:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;
+  }
+  header .brand{ display:flex; align-items:center; gap:12px; }
+  header .brand .mark{
+    width:34px; height:34px; border-radius:8px; background:var(--accent-grad);
+    background-size:180% 180%; animation:markShift 6s ease-in-out infinite;
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+    box-shadow:0 0 18px rgba(229,138,46,.35); flex-shrink:0;
+  }
+  @keyframes markShift{ 0%,100%{background-position:0% 50%;} 50%{background-position:100% 50%;} }
+  header h1{ font-size:19px; font-weight:600; }
+  header .sub{ color:var(--muted); font-size:13px; }
+  #clock{ color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+
+  .layout{
+    display:grid; grid-template-columns:360px 1fr; gap:20px; padding:20px 28px 40px;
+    max-width:1280px; margin:0 auto;
+  }
+  @media (max-width:900px){ .layout{ grid-template-columns:1fr; } }
+  .right-top{ display:grid; grid-template-columns:280px 1fr; gap:20px; }
+  @media (max-width:1100px){ .right-top{ grid-template-columns:1fr; } }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px;
+    transition:border-color .2s ease;
+  }
+  .panel:hover{ border-color:#3A4557; }
+  .panel + .panel{ margin-top:20px; }
+  .panel h2{ font-size:14px; letter-spacing:.02em; color:var(--muted); font-weight:600; margin-bottom:14px; }
+
+  label{ display:block; font-size:13px; color:var(--muted); margin:12px 0 6px; }
+  label:first-child{ margin-top:0; }
+  select, input{
+    width:100%; padding:9px 10px; border-radius:6px; border:1px solid var(--border);
+    background:var(--panel-2); color:var(--text); font-size:14px; font-family:inherit;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  select:focus, input:focus{
+    outline:none; border-color:var(--watch); box-shadow:0 0 0 3px rgba(212,167,44,.15);
+  }
+  .field-hint{ font-size:11px; color:var(--muted); margin-top:4px; }
+
+  button{
+    margin-top:18px; width:100%; padding:11px; border:none; border-radius:6px;
+    background:var(--watch); color:#141414; font-weight:600; font-size:14px; cursor:pointer;
+    font-family:inherit; transition:filter .15s ease, box-shadow .15s ease, transform .1s ease;
+  }
+  button:hover{ filter:brightness(1.08); box-shadow:0 0 0 4px rgba(212,167,44,.12); }
+  button:active{ transform:scale(.99); }
+  button.secondary{
+    background:transparent; color:var(--muted); border:1px solid var(--border); margin-top:8px;
+  }
+  button.secondary:hover{ color:var(--text); border-color:#3A4557; box-shadow:none; filter:none; }
+
+  .station-list{ list-style:none; margin:0; padding:0; }
+  .station-list li{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 0; border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .station-list li:last-child{ border-bottom:none; }
+  .station-list .name{ font-weight:500; }
+  .station-list .loc{ color:var(--muted); font-size:12px; display:block; }
+
+  .badge{ font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; white-space:nowrap; }
+  .badge.Low{ background:rgba(63,185,80,.15); color:var(--safe); }
+  .badge.Moderate{ background:rgba(212,167,44,.15); color:var(--watch); }
+  .badge.High{ background:rgba(229,138,46,.15); color:var(--high); }
+  .badge.Critical{
+    background:rgba(229,83,75,.18); color:var(--critical);
+    animation:pulseCritical 1.6s ease-in-out infinite;
+  }
+  @keyframes pulseCritical{
+    0%,100%{ box-shadow:0 0 0 0 rgba(229,83,75,.35); }
+    50%{ box-shadow:0 0 0 5px rgba(229,83,75,0); }
+  }
+
+  .gauge-wrap{ display:flex; flex-direction:column; align-items:center; text-align:center; }
+  .status-line{ font-size:13px; color:var(--muted); margin-top:10px; max-width:220px; }
+  .score-num{
+    font-family:'Space Grotesk', sans-serif; font-size:16px; font-weight:700; margin-top:2px;
+    background:var(--accent-grad); -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+
+  .factor-row{ display:flex; align-items:center; gap:10px; margin-top:10px; font-size:12px; }
+  .factor-row .label{ width:100px; color:var(--muted); flex-shrink:0; }
+  .factor-row .bar{ flex:1; height:6px; background:var(--panel-2); border-radius:3px; overflow:hidden; }
+  .factor-row .bar span{ display:block; height:100%; border-radius:3px; transition:width .4s ease; }
+  .factor-row .val{ width:34px; text-align:right; color:var(--muted); }
+
+  #chart-container{ width:100%; height:200px; position:relative; overflow-x:auto; }
+  .chart-empty{ color:var(--muted); font-size:13px; padding:40px 0; text-align:center; }
+
+  .table-scroll{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; min-width:480px; }
+  th{ text-align:left; color:var(--muted); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--border); }
+  td{ padding:8px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tr:last-child td{ border-bottom:none; }
+  tr:hover td{ background:rgba(255,255,255,.02); }
+  .empty-row td{ color:var(--muted); text-align:center; padding:24px 8px; }
+
+  .toast{
+    position:fixed; bottom:24px; right:24px; left:24px; margin:0 auto; max-width:320px;
+    background:var(--critical); color:#fff; padding:14px 18px; border-radius:8px; font-size:13px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.08);
+    display:none; z-index:10; animation:toastIn .25s ease;
+  }
+  .toast strong{ display:block; margin-bottom:2px; font-family:'Space Grotesk', sans-serif; }
+  @keyframes toastIn{ from{ transform:translateY(10px); opacity:0; } to{ transform:translateY(0); opacity:1; } }
+
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background:var(--bg); }
+  ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:6px; }
+  ::-webkit-scrollbar-thumb:hover{ background:#3A4557; }
+
+  footer{ text-align:center; color:var(--muted); font-size:12px; padding:24px 28px 40px; }
+
+  /* SOS panel */
+  .sos-panel{ border-color:rgba(229,83,75,.35); }
+  .sos-btn{
+    width:100%; padding:18px; border:none; border-radius:10px; cursor:pointer;
+    background:linear-gradient(135deg,#E5534B,#C2362F); color:#fff;
+    font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700;
+    letter-spacing:.04em; box-shadow:0 0 0 0 rgba(229,83,75,.45);
+    animation:sosGlow 2s ease-in-out infinite; margin-top:0;
+    transition:transform .1s ease;
+  }
+  .sos-btn:active{ transform:scale(.98); }
+  @keyframes sosGlow{
+    0%,100%{ box-shadow:0 0 0 0 rgba(229,83,75,.45); }
+    50%{ box-shadow:0 0 0 10px rgba(229,83,75,0); }
+  }
+  .sos-hint{ font-size:11px; color:var(--muted); margin-top:8px; text-align:center; }
+  .sos-actions{ display:none; margin-top:12px; gap:8px; flex-direction:column; }
+  .sos-actions.show{ display:flex; }
+  .sos-actions a{
+    display:block; text-align:center; padding:10px; border-radius:6px; text-decoration:none;
+    font-size:13px; font-weight:600; border:1px solid var(--border); color:var(--text);
+  }
+  .sos-actions a:hover{ border-color:#3A4557; }
+  .sos-actions a.call{ background:rgba(63,185,80,.12); border-color:rgba(63,185,80,.3); color:var(--safe); }
+  .sos-actions a.text{ background:rgba(212,167,44,.12); border-color:rgba(212,167,44,.3); color:var(--watch); }
+
+  .notif-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-size:12px; color:var(--muted); margin-top:14px; padding-top:14px; border-top:1px solid var(--border);
+  }
+  .notif-row button{ margin:0; width:auto; padding:6px 12px; font-size:12px; }
+  .status-dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; background:var(--muted); }
+  .status-dot.on{ background:var(--safe); }
+
+  #map{ width:100%; height:260px; border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+  .map-hint{ font-size:11px; color:var(--muted); margin-top:8px; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip{ background:var(--panel); color:var(--text); }
+  .leaflet-container{ background:var(--panel-2); }
+
+  .offline-badge{
+    display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">⛰</div>
+    <div>
+      <h1>Landslide Early Warning</h1>
+      <div class="sub">Monitoring &amp; prediction console</div>
+    </div>
+  </div>
+  <div id="clock">—</div>
+</header>
+
+<div class="layout">
+
+  <div>
+    <div class="panel sos-panel">
+      <h2 style="color:var(--critical);">Emergency SOS</h2>
+      <button type="button" class="sos-btn" id="sos-btn">🚨 TRIGGER SOS</button>
+      <div class="sos-hint">Logs a critical alert with your live location. Confirms before sending anything.</div>
+      <div class="sos-actions" id="sos-actions">
+        <a href="#" class="call" id="sos-call">📞 Call emergency contact</a>
+        <a href="#" class="text" id="sos-text">💬 Open SMS with location</a>
+      </div>
+
+      <label for="contact-number" style="margin-top:14px;">Emergency contact number</label>
+      <input type="tel" id="contact-number" placeholder="+91XXXXXXXXXX">
+
+      <div class="notif-row">
+        <span><span class="status-dot" id="notif-dot"></span><span id="notif-label">Device alerts off</span></span>
+        <button type="button" id="notif-btn">Enable</button>
+      </div>
+      <div class="notif-row" style="border-top:none; padding-top:0; margin-top:8px;">
+        <span class="offline-badge"><span class="status-dot on"></span>Works offline</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Submit sensor reading</h2>
+      <form id="reading-form">
+        <label for="station_id">Station</label>
+        <select id="station_id" required></select>
+
+        <label for="rainfall_mm">Rainfall (mm / 24h)</label>
+        <input type="number" id="rainfall_mm" min="0" max="500" step="0.1" value="20" required>
+        <div class="field-hint">Typical trigger range: 80–150+ mm in 24h</div>
+
+        <label for="soil_moisture_pct">Soil moisture (%)</label>
+        <input type="number" id="soil_moisture_pct" min="0" max="100" step="0.1" value="45" required>
+
+        <label for="slope_angle_deg">Slope angle (degrees)</label>
+        <input type="number" id="slope_angle_deg" min="0" max="90" step="0.1" value="25" required>
+
+        <label for="pore_pressure_kpa">Pore water pressure (kPa)</label>
+        <input type="number" id="pore_pressure_kpa" min="0" max="200" step="0.1" value="15" required>
+
+        <label for="vibration_mm_s">Ground vibration (mm/s)</label>
+        <input type="number" id="vibration_mm_s" min="0" max="100" step="0.1" value="2" required>
+
+        <button type="submit" id="submit-btn">Submit reading</button>
+        <button type="button" class="secondary" id="reset-btn">Reset demo data</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Monitoring stations</h2>
+      <ul class="station-list" id="station-list"></ul>
+    </div>
+
+    <div class="panel">
+      <h2>Site map</h2>
+      <div id="map"></div>
+      <div class="map-hint">Click the map to drop an incident pin. Marker color = latest risk level.</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="right-top">
+      <div class="panel gauge-wrap">
+        <h2 style="align-self:flex-start;">System risk</h2>
+        <svg id="gauge" width="200" height="120" viewBox="0 0 200 120"></svg>
+        <div class="score-num" id="gauge-score">—</div>
+        <div class="status-line" id="gauge-status">Submit a reading to begin monitoring.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Contributing factors (latest reading)</h2>
+        <div id="factors">
+          <div class="chart-empty">No readings yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Risk trend</h2>
+      <div id="chart-container">
+        <div class="chart-empty">Submit readings to see the trend.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Alert log</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Time</th><th>Station</th><th>Level</th><th>Message</th></tr></thead>
+          <tbody id="alerts-body">
+            <tr class="empty-row"><td colspan="4">No alerts triggered yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>Data, risk scoring and alerts run entirely in this browser — no server, no internet needed after the page loads (only the map tiles need a connection). SOS opens your phone's own call/SMS app; it does not send anything automatically. Reset to clear stored data.</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ------------------------------------------------------------------ */
+/* State — persisted to this browser only (localStorage)               */
+/* ------------------------------------------------------------------ */
+const STORE_KEY = "landslide_ews_state_v1";
+
+const DEFAULT_STATIONS = [
+  { id:"ST-01", name:"North Ridge",    location:"Sector A, Slope 34", lat:30.0668, lng:79.0193 },
+  { id:"ST-02", name:"River Bend Cut", location:"Sector B, Slope 12", lat:30.0720, lng:79.0260 },
+  { id:"ST-03", name:"Quarry Face",    location:"Sector C, Slope 27", lat:30.0605, lng:79.0110 },
+];
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw);
+  }catch(e){ /* fall through to defaults */ }
+  return { stations: DEFAULT_STATIONS, readings: [], alerts: [], nextId: 1 };
+}
+function saveState(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+  catch(e){ /* storage unavailable — app still works for this session */ }
+}
+let state = loadState();
+
+/* ------------------------------------------------------------------ */
+/* Risk model — mirrors the Python backend's compute_risk()            */
+/* ------------------------------------------------------------------ */
+function normalize(v, lo, hi){
+  if (hi === lo) return 0;
+  return Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+}
+
+function computeRisk(rainfall, moisture, slope, pressure, vibration){
+  const r = normalize(rainfall, 0, 150);
+  const s = normalize(moisture, 10, 100);
+  const a = normalize(slope, 5, 60);
+  const p = normalize(pressure, 0, 80);
+  const v = normalize(vibration, 0, 25);
+
+  let weighted = (r*0.30) + (s*0.25) + (a*0.20) + (p*0.15) + (v*0.10);
+  let score = Math.round(weighted * 1000) / 10;
+
+  const dangerFactors = [r,s,a,p,v].filter(f => f > 0.7).length;
+  if (dangerFactors >= 3) score = Math.min(100, score + 10);
+
+  let level;
+  if (score < 25) level = "Low";
+  else if (score < 50) level = "Moderate";
+  else if (score < 75) level = "High";
+  else level = "Critical";
+
+  const factors = {
+    rainfall: Math.round(r*1000)/10,
+    soil_moisture: Math.round(s*1000)/10,
+    slope_angle: Math.round(a*1000)/10,
+    pore_pressure: Math.round(p*1000)/10,
+    vibration: Math.round(v*1000)/10,
+  };
+  return { score, level, factors };
+}
+
+const ALERT_THRESHOLD = 50;
+const LEVEL_MESSAGE = {
+  Low: "Conditions stable. Routine monitoring.",
+  Moderate: "Elevated risk factors detected. Increase monitoring frequency.",
+  High: "Multiple risk indicators elevated. Prepare warning protocols.",
+  Critical: "Slide risk critical. Issue evacuation warning immediately.",
+};
+const LEVEL_COLOR = { Low:"#3FB950", Moderate:"#D4A72C", High:"#E58A2E", Critical:"#E5534B" };
+
+/* ------------------------------------------------------------------ */
+/* Clock                                                               */
+/* ------------------------------------------------------------------ */
+function tickClock(){
+  document.getElementById('clock').textContent = new Date().toLocaleString([], {
+    weekday:'short', hour:'2-digit', minute:'2-digit', second:'2-digit'
+  });
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ------------------------------------------------------------------ */
+/* Rendering                                                           */
+/* ------------------------------------------------------------------ */
+function fmtTime(iso){
+  return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+function drawGauge(score, level){
+  const svg = document.getElementById('gauge');
+  const cx=100, cy=105, r=85;
+  const pct = Math.max(0, Math.min(100, score)) / 100;
+  function point(a){ return [cx + r*Math.cos(a), cy - r*Math.sin(a)]; }
+  const [sx,sy] = point(Math.PI);
+  const [ex,ey] = point(0);
+  const angle = Math.PI - (Math.PI * pct);
+  const [mx,my] = point(angle);
+  const largeArc = pct > 0.5 ? 1 : 0;
+  const track = `M ${sx} ${sy} A ${r} ${r} 0 1 1 ${ex} ${ey}`;
+  const value  = `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${mx} ${my}`;
+  svg.innerHTML = `
+    <path d="${track}" fill="none" stroke="#2B3440" stroke-width="14" stroke-linecap="round"/>
+    ${score > 0 ? `<path d="${value}" fill="none" stroke="${LEVEL_COLOR[level]||'#8B96A5'}" stroke-width="14" stroke-linecap="round"/>` : ""}
+  `;
+}
+
+function drawFactors(factors){
+  const el = document.getElementById('factors');
+  if (!factors){ el.innerHTML = `<div class="chart-empty">No readings yet.</div>`; return; }
+  const labels = { rainfall:"Rainfall", soil_moisture:"Soil moisture", slope_angle:"Slope angle", pore_pressure:"Pore pressure", vibration:"Vibration" };
+  el.innerHTML = Object.entries(factors).map(([k,v]) => `
+    <div class="factor-row">
+      <div class="label">${labels[k]}</div>
+      <div class="bar"><span style="width:${v}%; background:${v>70?'#E5534B':v>40?'#D4A72C':'#3FB950'}"></span></div>
+      <div class="val">${v}%</div>
+    </div>`).join('');
+}
+
+function drawChart(){
+  const container = document.getElementById('chart-container');
+  const recent = state.readings.slice(-30);
+  if (recent.length < 2){
+    container.innerHTML = `<div class="chart-empty">Need at least 2 readings to draw a trend.</div>`;
+    return;
+  }
+  const w = Math.max(container.clientWidth || 600, 500), h = 200, pad = 24;
+  const stepX = (w - pad*2) / (recent.length - 1);
+  const pts = recent.map((d,i) => {
+    const x = pad + i*stepX;
+    const y = h - pad - (d.risk_score/100)*(h-pad*2);
+    return [x,y];
+  });
+  const path = pts.map((p,i) => (i===0?"M":"L") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const area = path + ` L ${pts[pts.length-1][0].toFixed(1)} ${h-pad} L ${pts[0][0].toFixed(1)} ${h-pad} Z`;
+  const gridLines = [0,25,50,75,100].map(v => {
+    const y = h - pad - (v/100)*(h-pad*2);
+    return `<line x1="${pad}" y1="${y}" x2="${w-pad}" y2="${y}" stroke="#2B3440" stroke-width="1"/>
+            <text x="2" y="${y+3}" font-size="10" fill="#8B96A5">${v}</text>`;
+  }).join('');
+  const dots = pts.map((p,i) => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="${LEVEL_COLOR[recent[i].risk_level]}"/>`).join('');
+  container.innerHTML = `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      ${gridLines}
+      <path d="${area}" fill="rgba(212,167,44,0.08)" stroke="none"/>
+      <path d="${path}" fill="none" stroke="#D4A72C" stroke-width="2"/>
+      ${dots}
+    </svg>`;
+}
+
+function renderAlerts(){
+  const body = document.getElementById('alerts-body');
+  const alerts = state.alerts.slice(-15).reverse();
+  if (alerts.length === 0){
+    body.innerHTML = `<tr class="empty-row"><td colspan="4">No alerts triggered yet.</td></tr>`;
+    return;
+  }
+  body.innerHTML = alerts.map(a => `
+    <tr>
+      <td>${fmtTime(a.timestamp)}</td>
+      <td>${a.station_id}</td>
+      <td><span class="badge ${a.risk_level}">${a.risk_level}</span></td>
+      <td>${a.message}</td>
+    </tr>`).join('');
+}
+
+function renderStations(){
+  const sel = document.getElementById('station_id');
+  const prev = sel.value;
+  sel.innerHTML = state.stations.map(s => `<option value="${s.id}">${s.name} (${s.id})</option>`).join('');
+  if (prev) sel.value = prev;
+
+  const list = document.getElementById('station-list');
+  list.innerHTML = state.stations.map(s => {
+    const latest = [...state.readings].reverse().find(r => r.station_id === s.id);
+    return `<li>
+      <div><div class="name">${s.name}</div><span class="loc">${s.location}</span></div>
+      ${latest ? `<span class="badge ${latest.risk_level}">${latest.risk_level}</span>`
+                : `<span class="badge" style="background:#2B3440; color:#8B96A5;">No data</span>`}
+    </li>`;
+  }).join('');
+}
+
+function renderSummary(){
+  let overallScore = 0, overallLevel = "Low", overallReading = null;
+  state.stations.forEach(s => {
+    const latest = [...state.readings].reverse().find(r => r.station_id === s.id);
+    if (latest && latest.risk_score > overallScore){
+      overallScore = latest.risk_score; overallLevel = latest.risk_level; overallReading = latest;
+    }
+  });
+  drawGauge(overallScore, overallLevel);
+  document.getElementById('gauge-score').textContent = `${overallScore.toFixed(1)} / 100`;
+  const statusMsgs = {
+    Low:"Ground is stable across all stations.",
+    Moderate:"Some risk factors elevated. Keep monitoring.",
+    High:"Risk elevated at one or more stations. Prepare protocols.",
+    Critical:"Critical risk detected. Evacuate if directed by authorities."
+  };
+  document.getElementById('gauge-status').textContent = state.readings.length
+    ? (statusMsgs[overallLevel] || "Awaiting data.")
+    : "Submit a reading to begin monitoring.";
+  drawFactors(overallReading ? overallReading.factors : null);
+}
+
+function renderAll(){
+  renderStations();
+  renderSummary();
+  drawChart();
+  renderAlerts();
+  if (typeof renderStationMarkers === 'function') renderStationMarkers();
+}
+
+function showToast(level, message){
+  const toast = document.getElementById('toast');
+  toast.style.background = LEVEL_COLOR[level] || "#E5534B";
+  toast.innerHTML = `<strong>${level} risk alert</strong>${message}`;
+  toast.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.style.display = 'none', 6000);
+}
+
+/* ------------------------------------------------------------------ */
+/* Form handling                                                       */
+/* ------------------------------------------------------------------ */
+document.getElementById('reading-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const station_id = document.getElementById('station_id').value;
+  const rainfall = parseFloat(document.getElementById('rainfall_mm').value);
+  const moisture = parseFloat(document.getElementById('soil_moisture_pct').value);
+  const slope = parseFloat(document.getElementById('slope_angle_deg').value);
+  const pressure = parseFloat(document.getElementById('pore_pressure_kpa').value);
+  const vibration = parseFloat(document.getElementById('vibration_mm_s').value);
+
+  if ([rainfall, moisture, slope, pressure, vibration].some(v => Number.isNaN(v))){
+    alert("All sensor fields must be numeric.");
+    return;
+  }
+
+  const { score, level, factors } = computeRisk(rainfall, moisture, slope, pressure, vibration);
+  const timestamp = new Date().toISOString();
+  const reading = {
+    id: state.nextId++, station_id, timestamp,
+    rainfall_mm: rainfall, soil_moisture_pct: moisture, slope_angle_deg: slope,
+    pore_pressure_kpa: pressure, vibration_mm_s: vibration,
+    risk_score: score, risk_level: level, factors
+  };
+  state.readings.push(reading);
+
+  if (score >= ALERT_THRESHOLD){
+    const message = LEVEL_MESSAGE[level];
+    state.alerts.push({ station_id, timestamp, risk_score: score, risk_level: level, message });
+    showToast(level, message);
+    if (level === "Critical") fireLocalAlert(`🚨 Critical risk — ${station_id}`, message);
+  }
+
+  saveState();
+  renderAll();
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  if (!confirm("Clear all stored readings and alerts in this browser?")) return;
+  state = { stations: DEFAULT_STATIONS, readings: [], alerts: [], nextId: 1 };
+  saveState();
+  renderAll();
+});
+
+window.addEventListener('resize', drawChart);
+
+/* ------------------------------------------------------------------ */
+/* Emergency contact number — persisted locally                        */
+/* ------------------------------------------------------------------ */
+const contactInput = document.getElementById('contact-number');
+contactInput.value = localStorage.getItem('landslide_ews_contact') || '';
+contactInput.addEventListener('change', () => {
+  localStorage.setItem('landslide_ews_contact', contactInput.value.trim());
+});
+
+/* ------------------------------------------------------------------ */
+/* Local device notifications (Notification API)                       */
+/* This only alerts whoever has THIS page open on THIS device and has  */
+/* granted permission — it cannot reach other people's phones.         */
+/* ------------------------------------------------------------------ */
+const notifDot = document.getElementById('notif-dot');
+const notifLabel = document.getElementById('notif-label');
+const notifBtn = document.getElementById('notif-btn');
+
+function refreshNotifUI(){
+  const supported = 'Notification' in window;
+  if (!supported){
+    notifLabel.textContent = 'Not supported on this browser';
+    notifBtn.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted'){
+    notifDot.classList.add('on');
+    notifLabel.textContent = 'Device alerts on (this browser only)';
+    notifBtn.textContent = 'Enabled';
+    notifBtn.disabled = true;
+  } else {
+    notifDot.classList.remove('on');
+    notifLabel.textContent = 'Device alerts off';
+    notifBtn.textContent = 'Enable';
+    notifBtn.disabled = false;
+  }
+}
+notifBtn.addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  await Notification.requestPermission();
+  refreshNotifUI();
+});
+refreshNotifUI();
+
+function fireLocalAlert(title, body){
+  if ('Notification' in window && Notification.permission === 'granted'){
+    try{ new Notification(title, { body, icon: undefined }); }catch(e){}
+  }
+  if ('vibrate' in navigator){
+    try{ navigator.vibrate([200,100,200,100,400]); }catch(e){}
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* SOS                                                                  */
+/* ------------------------------------------------------------------ */
+const sosBtn = document.getElementById('sos-btn');
+const sosActions = document.getElementById('sos-actions');
+const sosCall = document.getElementById('sos-call');
+const sosText = document.getElementById('sos-text');
+
+sosBtn.addEventListener('click', () => {
+  if (!confirm("Trigger SOS? This logs a critical alert with your current location.")) return;
+
+  const logSOS = (lat, lng) => {
+    const timestamp = new Date().toISOString();
+    const locText = (lat != null) ? `at ${lat.toFixed(5)}, ${lng.toFixed(5)}` : "(location unavailable)";
+    const message = `Manual SOS triggered ${locText}. Immediate attention required.`;
+
+    state.alerts.push({ station_id: "SOS", timestamp, risk_score: 100, risk_level: "Critical", message });
+    saveState();
+    renderAlerts();
+    showToast("Critical", message);
+    fireLocalAlert("🚨 SOS triggered", message);
+
+    if (lat != null && mapInstance){
+      L.marker([lat, lng], { icon: pinIcon("Critical") }).addTo(mapInstance)
+        .bindPopup(`<strong>SOS</strong><br>${fmtTime(timestamp)}`).openPopup();
+      mapInstance.panTo([lat, lng]);
+    }
+
+    const contact = (localStorage.getItem('landslide_ews_contact') || '').trim();
+    const mapsLink = (lat != null) ? `https://maps.google.com/?q=${lat},${lng}` : "";
+    const smsBody = encodeURIComponent(`SOS — landslide risk emergency. My location: ${mapsLink || 'unavailable'}`);
+
+    if (contact){
+      sosCall.href = `tel:${contact}`;
+      sosText.href = `sms:${contact}?&body=${smsBody}`;
+    } else {
+      sosCall.href = `tel:`;
+      sosText.href = `sms:?&body=${smsBody}`;
+    }
+    sosActions.classList.add('show');
+  };
+
+  if ('geolocation' in navigator){
+    navigator.geolocation.getCurrentPosition(
+      pos => logSOS(pos.coords.latitude, pos.coords.longitude),
+      () => logSOS(null, null),
+      { enableHighAccuracy:true, timeout:6000 }
+    );
+  } else {
+    logSOS(null, null);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Map (Leaflet)                                                       */
+/* ------------------------------------------------------------------ */
+let mapInstance = null;
+
+function pinIcon(level){
+  const color = LEVEL_COLOR[level] || "#8B96A5";
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.4);"></div>`,
+    iconSize: [16,16], iconAnchor: [8,8]
+  });
+}
+
+function initMap(){
+  const el = document.getElementById('map');
+  if (!el || typeof L === 'undefined') return; // Leaflet failed to load (offline first visit)
+
+  const withCoords = state.stations.filter(s => s.lat != null && s.lng != null);
+  const center = withCoords.length ? [withCoords[0].lat, withCoords[0].lng] : [20.5937, 78.9629];
+
+  mapInstance = L.map('map', { attributionControl:false }).setView(center, withCoords.length ? 14 : 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18
+  }).addTo(mapInstance);
+  L.control.attribution({ position:'bottomright', prefix:false }).addAttribution('© OpenStreetMap').addTo(mapInstance);
+
+  renderStationMarkers();
+
+  mapInstance.on('click', (e) => {
+    const { lat, lng } = e.latlng;
+    L.marker([lat, lng], { icon: pinIcon("Moderate") }).addTo(mapInstance)
+      .bindPopup(`<strong>Incident pin</strong><br>${lat.toFixed(5)}, ${lng.toFixed(5)}`).openPopup();
+  });
+}
+
+let stationMarkers = [];
+function renderStationMarkers(){
+  if (!mapInstance) return;
+  stationMarkers.forEach(m => mapInstance.removeLayer(m));
+  stationMarkers = [];
+  state.stations.forEach(s => {
+    if (s.lat == null || s.lng == null) return;
+    const latest = [...state.readings].reverse().find(r => r.station_id === s.id);
+    const level = latest ? latest.risk_level : "Low";
+    const marker = L.marker([s.lat, s.lng], { icon: pinIcon(level) }).addTo(mapInstance)
+      .bindPopup(`<strong>${s.name}</strong><br>${s.location}<br>Risk: ${level}`);
+    stationMarkers.push(marker);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Init                                                                 */
+/* ------------------------------------------------------------------ */
+renderAll();
+initMap();
+</script>
+
+</body>
+</html>
